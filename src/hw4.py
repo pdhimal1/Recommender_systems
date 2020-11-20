@@ -1,5 +1,6 @@
 """
 Prakash Dhimal
+Manav Garkel
 George Mason University
 CS 657 Mining Massive Datasets
 Assignment 4: Recommender Systems
@@ -21,142 +22,175 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType, DoubleType
 from sklearn.metrics.pairwise import cosine_similarity
 
-conf = SparkConf()
-conf.set('spark.executor.memory', '15G')
-conf.set('spark.driver.memory', '15G')
-conf.set("spark.driver.host", "localhost")
-conf.setAppName("hw4")
-# conf.set('spark.driver.maxResultSize', '15G')
 
-sc = SparkContext(conf=conf)
-spark = SparkSession(sc)
+def init_spark():
+    conf = SparkConf()
+    conf.set('spark.executor.memory', '15G')
+    conf.set('spark.driver.memory', '15G')
+    conf.set("spark.driver.host", "localhost")
+    conf.setAppName("hw4")
+    # conf.set('spark.driver.maxResultSize', '15G')
 
-# Read in the ratings csv
-ratings = spark.read.option("header", "true").csv('../data/ml-20m/ratings.csv')
-ratings = ratings.withColumn('userId', F.col('userId').cast(IntegerType()))
-ratings = ratings.withColumn('movieId', F.col('movieId').cast(IntegerType()))
-ratings = ratings.withColumn('rating', F.col('rating').cast(DoubleType()))
+    sc = SparkContext(conf=conf)
+    spark = SparkSession(sc)
+    return spark
 
-ratings = ratings.select("userId", "movieId", "rating")
 
-print("Running ALS cross validation ...")
-# train the ALS model for collaborative filtering
-# todo - Use the Products of Factors technique for your system and optimize the loss function with ALS.
-# See slides
-'''
-If the rating matrix is derived from another source of information (i.e. it is inferred from other signals),
-you can set implicitPrefs to True to get better results:
+def read_data(spark):
+    # Read in the ratings csv
+    ratings = spark.read.option("header", "true").csv('../data/ml-20m/ratings.csv')
+    ratings = ratings.withColumn('userId', F.col('userId').cast(IntegerType()))
+    ratings = ratings.withColumn('movieId', F.col('movieId').cast(IntegerType()))
+    ratings = ratings.withColumn('rating', F.col('rating').cast(DoubleType()))
+    ratings = ratings.select("userId", "movieId", "rating")
+    return ratings
 
-regParam=0.01
-'''
-# Note we set cold start strategy to 'drop' to ensure we don't get NaN evaluation metrics
-# coldStartStrategy="drop"
-als_model = ALS(itemCol='movieId',
-                userCol='userId',
-                ratingCol='rating',
-                nonnegative=True)
 
-# We use a ParamGridBuilder to construct a grid of parameters to search over.
-# todo - add other parameters here?
-# rank, maxIter
-seed = [5]  # Random seed for initial matrix factorization model
-ranks = [4, 8, 12]  # number of features
-iterations = [10, 20]
-regParam = [0.01]  # 0.01 is the defualt
-implicitPrefs = [True, False]
-coldStartStrategy = ["drop", "nan"]
-param_grid = ParamGridBuilder() \
-    .addGrid(als_model.rank, ranks) \
-    .addGrid(als_model.maxIter, iterations) \
-    .addGrid(als_model.seed, seed) \
-    .build()
+def create_cross_validator(rmse_evaluator, folds=3):
+    # Note we set cold start strategy to 'drop' to ensure we don't get NaN evaluation metrics
+    # coldStartStrategy="drop"
+    als_model = ALS(itemCol='movieId',
+                    userCol='userId',
+                    ratingCol='rating',
+                    nonnegative=True,
+                    seed=5)
 
-'''
-    .addGrid(als_model.seed, seed) \
-    .addGrid(als_model.regParam, regParam) \
-    # this 
-    .addGrid(als_model.implicitPrefs, implicitPrefs) \
-'''
-# Evaluate model, can I give it two metrics?
-rmse_evaluator = RegressionEvaluator(
-    predictionCol="prediction",
-    labelCol="rating",
-    metricName="rmse")
+    # We use a ParamGridBuilder to construct a grid of parameters to search over.
+    # rank, maxIter
+    ranks = [1, 2, 4, 8]  # number of features
+    iterations = [10, 20]
+    regParam = [0.0, 0.01, 0.3]  # 0.01 is the defualt
+    param_grid = ParamGridBuilder() \
+        .addGrid(als_model.rank, ranks) \
+        .addGrid(als_model.maxIter, iterations) \
+        .build()
 
-cross_validator = CrossValidator(estimator=als_model,
-                                 estimatorParamMaps=param_grid,
-                                 evaluator=rmse_evaluator,
-                                 numFolds=3)  # todo - change the number of folds
+    '''
+        .addGrid(als_model.seed, seed) \
+        .addGrid(als_model.regParam, regParam) \
+        # this 
+        .addGrid(als_model.implicitPrefs, implicitPrefs) \
+    '''
 
-# Let's split our data into training data and testing data
-# todo - control the amount of data here
-print("Total dataset: ", ratings.count())
-ratings = ratings.limit(1000)  # total dataset is 20000263
-trainTest = ratings.randomSplit([0.8, 0.2])
+    cross_validator = CrossValidator(estimator=als_model,
+                                     estimatorParamMaps=param_grid,
+                                     evaluator=rmse_evaluator,
+                                     numFolds=folds)
+    return cross_validator
 
-trainingDF = trainTest[0]
-testDF = trainTest[1]
 
-time_start = time.time()
-# Run cross-validation, and choose the best set of parameters.
-cross_validation_model = cross_validator.fit(trainingDF)
+def get_model(rmse_evaluator, rank=4, crossValidation=False, folds=3):
+    if crossValidation:
+        cross_validator = create_cross_validator(rmse_evaluator, folds=folds)
+        return cross_validator
+    else:
+        return ALS(itemCol='movieId',
+                   userCol='userId',
+                   ratingCol='rating',
+                   nonnegative=True,
+                   rank=rank)
 
-# Make predictions on test documents. cvModel uses the best model found (lrModel).
-test_prediction = cross_validation_model.transform(testDF)
-# test_prediction.cache()
-time_end = time.time()
-print("ALS predictions are done!")
-print("Best model selected from cross validation:\n", cross_validation_model.bestModel)
-print("took ", time_end - time_start, " seconds for cross validation")
-test_prediction_with_na = test_prediction
-test_prediction = test_prediction.na.drop()
 
-test_prediction.show()
-print("ALS RMSE: ", rmse_evaluator.evaluate(test_prediction))
+def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=False, folds=3):
+    if crossValidation:
+        print("Running ALS cross validation with {} folds ...".format(folds))
+        print("ALS cross validation with {} folds ...".format(folds), file=outFile)
+    else:
+        print("Running ALS with rank={} ...".format(rank))
+        print("ALS with rank={} ...".format(rank), file=outFile)
 
-mae_evaluator = RegressionEvaluator(
-    predictionCol="prediction",
-    labelCol="rating",
-    metricName="mae")
-print("ALS MAE: ", mae_evaluator.evaluate(test_prediction))
+    time_start = time.time()
+    model = get_model(rmse_evaluator, rank, crossValidation, folds=folds)
+    model = model.fit(trainingDF)
+    test_prediction = model.transform(testDF)
+    time_end = time.time()
 
-mse_evaluator = RegressionEvaluator(
-    predictionCol="prediction",
-    labelCol="rating",
-    metricName="mse")
-print("ALS MSE: ", mse_evaluator.evaluate(test_prediction))
+    if crossValidation:
+        # train the ALS model for collaborative filtering
+        # todo - Use the Products of Factors technique for your system and optimize the loss function with ALS.
+        # See slides
+        print("Best model selected from cross validation:\n", model.bestModel)
+        print("Best model selected from cross validation:\n", model.bestModel, file=outFile)
+        print("Folds: ", folds, file=outFile)
+        print("took ", time_end - time_start, " seconds for cross validation")
+        print("took ", time_end - time_start, " seconds for cross validation", file=outFile)
+        print("took {} minutes for cross validation".format((time_end - time_start) / 60))
+        print("took {} minutes for cross validation".format((time_end - time_start) / 60), file=outFile)
+    else:
+        print("took ", time_end - time_start, " seconds for ALS")
+        print("took ", time_end - time_start, " seconds for ALS", file=outFile)
+        print("took {} minutes for ALS".format((time_end - time_start) / 60))
+        print("took {} minutes for ALS".format((time_end - time_start) / 60), file=outFile)
 
-# Generate top 10 movie recommendations for each user
-userRecs = cross_validation_model.bestModel.recommendForAllUsers(5)
-userRecs.show()
-# Generate top 10 user recommendations for each movie
-movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
-movieRecs.show()
+    print("ALS predictions are done!")
+
+    test_prediction_with_na = test_prediction
+    test_prediction = test_prediction.na.drop()
+
+    # Generate top 10 movie recommendations for each user
+    # userRecs = cross_validation_model.bestModel.recommendForAllUsers(5)
+    # userRecs.show()
+    # Generate top 10 user recommendations for each movie
+    # movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
+    # movieRecs.show()
+
+    return test_prediction, test_prediction_with_na
+
+
+def fill_ratings(this_user, movieID, col):
+    rating = this_user[this_user.movieId == movieID].rating.iloc[0]
+    if math.isnan(rating):
+        rating = 0
+    col[movieID] = rating
+
+
+def fill_Utility_matrix(data, unique_movies, user, utility_matrix):
+    # np array of len()
+    col = dict.fromkeys(unique_movies, 0)
+    this_user = data[data.userId == user]
+    if not this_user.empty:
+        [fill_ratings(this_user, movieID, col) for movieID in this_user.movieId]
+    utility_matrix[user] = col
 
 
 def get_Matrix(data):
     unique_users = data.userId.unique()
     unique_movies = data.movieId.unique()
+    print("Unique users: ", len(unique_users))
+    print("Unique movies: ", len(unique_movies))
     utility_matrix = {}
-    for user in unique_users:
-        # np array of len()
-        col = dict.fromkeys(unique_movies, 0)
-        this_user = data[data.userId == user]
-        if not this_user.empty:
-            for movieID in this_user.movieId:
-                # instead of this put the actual ratings in
-                rating = this_user[this_user.movieId == movieID].rating.iloc[0]
-                if math.isnan(rating):
-                    rating = 0
-                col[movieID] = rating
-        utility_matrix[user] = col
-
+    time_start = time.time()
+    [fill_Utility_matrix(data, unique_movies, user, utility_matrix) for user in unique_users]
+    time_end = time.time()
+    print("took {} minutes for creating the matrix.".format((time_end - time_start) / 60))
     return pd.DataFrame(utility_matrix)
 
 
-def item_item_collaborative_filtering():
-    k = 25
+def get_ratings(x, item_similarity, train_df, k):
+    userID = x[1]['userId']
+    movieID = x[1]['movieId']
+    # taking only those k users that have rated the movie
+    this_item_distances = item_similarity[movieID]
+    sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
+    # get the ratings by this user
+    this_user = train_df[userID]
+
+    ratings_this_user_this_movie = []
+    for key in sorted_distances.keys():
+        if len(ratings_this_user_this_movie) >= k:
+            break
+        this_user_this_movie = this_user[key]
+        if this_user_this_movie > 0:
+            ratings_this_user_this_movie.append(this_user_this_movie)
+
+    item_rating = mean(ratings_this_user_this_movie)
+    return np.float16(item_rating)
+
+
+def item_item_collaborative_filtering(k, ratings, testDF):
+    print("Creating item-item matrix ...")
     train_df = get_Matrix(ratings.toPandas())
+    print("Matrix creation done ...")
     item_item_index = train_df.index
     item_similarity = cosine_similarity(train_df)
     item_similarity = pd.DataFrame(item_similarity)
@@ -164,47 +198,118 @@ def item_item_collaborative_filtering():
     item_similarity.columns = item_item_index
 
     test_data = testDF.toPandas()
-    item_item_collaborative_labels = []
-    for x in test_data[:].iterrows():
-        userID = x[1]['userId']
-        movieID = x[1]['movieId']
-        # taking only those k users that have rated the movie
-        this_item_distances = item_similarity[movieID]
-        sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
-        # get the ratings by this user
-        this_user = train_df[userID]
-
-        ratings_this_user_this_movie = []
-        for key in sorted_distances.keys():
-            if len(ratings_this_user_this_movie) >= k:
-                break
-            this_user_this_movie = this_user[key]
-            if this_user_this_movie > 0:
-                ratings_this_user_this_movie.append(this_user_this_movie)
-
-        item_rating = mean(ratings_this_user_this_movie)
-        item_item_collaborative_labels.append(np.float16(item_rating))
+    item_item_collaborative_labels = [get_ratings(x, item_similarity, train_df, k) for x in test_data[:].iterrows()]
     test_data['prediction_item_item_cf'] = item_item_collaborative_labels
     return test_data
 
 
-prediction_item_item = item_item_collaborative_filtering()
-prediction_item_item_df = spark.createDataFrame(prediction_item_item)
-prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction_item_item_cf", "prediction")
-print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df))
-print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df))
-print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df))
+def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=False, folds=3):
+    spark = init_spark()
+    ratings = read_data(spark)
 
-test_prediction_with_na = test_prediction_with_na.withColumnRenamed("prediction", "prediction_als")
-prediction_total = prediction_item_item.merge(test_prediction_with_na.toPandas(), on=['userId', 'movieId', 'rating'])
-print(prediction_total)
+    # Let's split our data into training data and testing data
+    ratings = ratings.limit(data_size)  # total dataset is 20000263
+    print("Data size: ", ratings.count())
+    print("Data size: ", ratings.count(), file=outFile)
+    trainTest = ratings.randomSplit([0.8, 0.2])
 
-prediction_total['prediction'] = prediction_total[['prediction_item_item_cf', 'prediction_als']].mean(axis=1)
-print(prediction_total)
+    trainingDF = trainTest[0]
+    testDF = trainTest[1]
+    time_start = time.time()
+    # Evaluate model, can I give it two metrics?
+    rmse_evaluator = RegressionEvaluator(
+        predictionCol="prediction",
+        labelCol="rating",
+        metricName="rmse")
+    mae_evaluator = RegressionEvaluator(
+        predictionCol="prediction",
+        labelCol="rating",
+        metricName="mae")
+    mse_evaluator = RegressionEvaluator(
+        predictionCol="prediction",
+        labelCol="rating",
+        metricName="mse")
 
-prediction_total_df = spark.createDataFrame(prediction_total)
-print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total_df))
-print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total_df))
-print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total_df))
+    test_prediction, test_prediction_with_na = als(
+        rmse_evaluator,
+        trainingDF,
+        testDF,
+        outFile,
+        rank,
+        crossValidation,
+        folds=folds)
+    test_prediction.show()
+    print("ALS RMSE: ", rmse_evaluator.evaluate(test_prediction))
+    print("ALS RMSE: ", rmse_evaluator.evaluate(test_prediction), file=outFile)
+    print("ALS MAE: ", mae_evaluator.evaluate(test_prediction))
+    print("ALS MAE: ", mae_evaluator.evaluate(test_prediction), file=outFile)
+    print("ALS MSE: ", mse_evaluator.evaluate(test_prediction))
+    print("ALS MSE: ", mse_evaluator.evaluate(test_prediction), file=outFile)
 
-sc.stop()
+    if cf:
+        print("Running item-item collaborative filtering ...")
+        time_start_cf = time.time()
+        prediction_item_item = item_item_collaborative_filtering(k, ratings, testDF)
+        time_end = time.time()
+        print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60))
+        print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60),
+              file=outFile)
+        prediction_item_item_df = spark.createDataFrame(prediction_item_item)
+        prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction_item_item_cf", "prediction")
+        print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df))
+        print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df), file=outFile)
+        print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df))
+        print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df), file=outFile)
+        print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df))
+        print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df), file=outFile)
+
+        test_prediction_with_na = test_prediction_with_na.withColumnRenamed("prediction", "prediction_als")
+        prediction_total = prediction_item_item.merge(
+            test_prediction_with_na.toPandas(),
+            on=['userId', 'movieId', 'rating'])
+        print(prediction_total)
+
+        # should probably give 60% to item item
+        prediction_total['prediction'] = prediction_total[['prediction_item_item_cf', 'prediction_als']].mean(axis=1)
+        print(prediction_total)
+
+        prediction_total_df = spark.createDataFrame(prediction_total)
+        print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total_df))
+        print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total_df), file=outFile)
+        print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total_df))
+        print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total_df), file=outFile)
+        print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total_df))
+        print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total_df), file=outFile)
+
+        file_name = '../out/predictions_total-' + time_stamp + "-" + str(data_size) + '.csv'
+        prediction_total.to_csv(file_name, index=False)
+
+    print("Total time to run Script: {} minutes".format((time.time() - time_start)/60))
+    print("Total time to run Script: {} minutes".format((time.time() - time_start)/60), file=outFile)
+    spark.stop()
+
+
+if __name__ == "__main__":
+    # todo parameters
+    data_size = 20000263  # 1000000 # 10000000  # total dataset is 20000263
+    # for als if not cross validation
+    rank = 1
+    # cross validation
+    crossValidation = True
+    folds = 5
+    # item item collaborative filtering
+    cf = True
+    k = 15
+
+    time_stamp = str(int(time.time()))
+    out_file_name = '../out/output-' + time_stamp + "-" + str(data_size) + '.txt'
+    out_file = open(out_file_name, 'w')
+    main(data_size,
+         k,
+         out_file,
+         time_stamp,
+         cf=cf,
+         rank=rank,
+         crossValidation=crossValidation,
+         folds=folds)
+    print("Check ", out_file.name)

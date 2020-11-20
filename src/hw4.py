@@ -133,26 +133,32 @@ userRecs.show()
 movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
 movieRecs.show()
 
+def fill_ratings(this_user, movieID, col):
+    rating = this_user[this_user.movieId == movieID].rating.iloc[0]
+    if math.isnan(rating):
+        rating = 0
+    col[movieID] = rating
 
-# Function get matrix of movieId x userId where values are ratings
+def fill_Utility_matrix(data, unique_movies, user, utility_matrix):
+    # np array of len()
+    col = dict.fromkeys(unique_movies, 0)
+    this_user = data[data.userId == user]
+    if not this_user.empty:
+        [fill_ratings(this_user, movieID, col) for movieID in this_user.movieId]
+    utility_matrix[user] = col
+
 def get_Matrix(data):
     unique_users = data.userId.unique()
     unique_movies = data.movieId.unique()
+    print("Unique users: ", len(unique_users))
+    print("Unique movies: ", len(unique_movies))
     utility_matrix = {}
-    for user in unique_users:
-        # np array of len()
-        col = dict.fromkeys(unique_movies, 0)
-        this_user = data[data.userId == user]
-        if not this_user.empty:
-            for movieID in this_user.movieId:
-                # instead of this put the actual ratings in
-                rating = this_user[this_user.movieId == movieID].rating.iloc[0]
-                if math.isnan(rating):
-                    rating = 0
-                col[movieID] = rating
-        utility_matrix[user] = col
-
+    time_start = time.time()
+    [fill_Utility_matrix(data, unique_movies, user, utility_matrix) for user in unique_users]
+    time_end = time.time()
+    print("took {} minutes for creating the matrix.".format((time_end - time_start) / 60))
     return pd.DataFrame(utility_matrix)
+
 
 # Item - Item CF predictions
 def item_item_cf(x, item_similarity, train_df):

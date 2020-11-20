@@ -18,7 +18,7 @@ from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import IntegerType, DoubleType
+from pyspark.sql.types import DoubleType, IntegerType, StructType, StructField, FloatType
 from sklearn.metrics.pairwise import cosine_similarity
 
 conf = SparkConf()
@@ -107,7 +107,7 @@ test_prediction = cross_validation_model.transform(testDF)
 time_end = time.time()
 print("ALS predictions are done!")
 print("Best model selected from cross validation:\n", cross_validation_model.bestModel)
-print("took ", time_end - time_start, " seconds for cross validation")
+print("took ", (time_end - time_start)/60, " minutes for cross validation")
 test_prediction_with_na = test_prediction
 test_prediction = test_prediction.na.drop()
 
@@ -134,6 +134,7 @@ movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
 movieRecs.show()
 
 
+# Function get matrix of movieId x userId where values are ratings
 def get_Matrix(data):
     unique_users = data.userId.unique()
     unique_movies = data.movieId.unique()
@@ -153,58 +154,70 @@ def get_Matrix(data):
 
     return pd.DataFrame(utility_matrix)
 
+# Item - Item CF predictions
+def item_item_cf(x, item_similarity, train_df):
+    userID = x[0]
+    movieID = x[1]
 
-def item_item_collaborative_filtering():
-    k = 25
-    train_df = get_Matrix(ratings.toPandas())
-    item_item_index = train_df.index
-    item_similarity = cosine_similarity(train_df)
-    item_similarity = pd.DataFrame(item_similarity)
-    item_similarity.index = item_item_index
-    item_similarity.columns = item_item_index
+    # taking only those k users that have rated the movie
+    this_item_distances = item_similarity[movieID]
+    sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
 
-    test_data = testDF.toPandas()
-    item_item_collaborative_labels = []
-    for x in test_data[:].iterrows():
-        userID = x[1]['userId']
-        movieID = x[1]['movieId']
-        # taking only those k users that have rated the movie
-        this_item_distances = item_similarity[movieID]
-        sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
-        # get the ratings by this user
-        this_user = train_df[userID]
+    # get the ratings by this user
+    this_user = train_df[userID]
 
-        ratings_this_user_this_movie = []
-        for key in sorted_distances.keys():
-            if len(ratings_this_user_this_movie) >= k:
-                break
-            this_user_this_movie = this_user[key]
-            if this_user_this_movie > 0:
-                ratings_this_user_this_movie.append(this_user_this_movie)
+    ratings_this_user_this_movie = []
+    for key in sorted_distances.keys():
+        if len(ratings_this_user_this_movie) >= k:
+            break
+        this_user_this_movie = this_user[key]
+        if this_user_this_movie > 0:
+            ratings_this_user_this_movie.append(this_user_this_movie)
+    item_rating = mean(ratings_this_user_this_movie)
 
-        item_rating = mean(ratings_this_user_this_movie)
-        item_item_collaborative_labels.append(np.float16(item_rating))
-    test_data['prediction_item_item_cf'] = item_item_collaborative_labels
-    return test_data
+    return item_rating
 
 
-prediction_item_item = item_item_collaborative_filtering()
-prediction_item_item_df = spark.createDataFrame(prediction_item_item)
-prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction_item_item_cf", "prediction")
+# Spark Implementation for Item-Item CF
+train_df = get_Matrix(ratings.toPandas())
+item_item_index = train_df.index
+item_similarity = cosine_similarity(train_df)
+item_similarity = pd.DataFrame(item_similarity)
+item_similarity.index = item_item_index
+item_similarity.columns = item_item_index
+
+k = 10
+test_data = testDF.rdd.map(tuple)
+item_item_results = test_data.map(lambda x: (x[0], x[1], x[2], float(item_item_cf(x, item_similarity, train_df))))
+schema = StructType([StructField('userId', IntegerType(), True),
+                     StructField('movieId', IntegerType(), True),
+                     StructField('rating', FloatType(), True),
+                     StructField('prediction_item_item_cf', FloatType(), True)])
+prediction_item_item = spark.createDataFrame(item_item_results, schema)
+
+
+# Print Stats for Item-Item CF
+prediction_item_item_df = prediction_item_item.withColumnRenamed("prediction_item_item_cf", "prediction")
 print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df))
 print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df))
 print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df))
 
+
+# Hybrid Approach
 test_prediction_with_na = test_prediction_with_na.withColumnRenamed("prediction", "prediction_als")
-prediction_total = prediction_item_item.merge(test_prediction_with_na.toPandas(), on=['userId', 'movieId', 'rating'])
-print(prediction_total)
+prediction_total = prediction_item_item.join(test_prediction_with_na, on=['userId', 'movieId', 'rating'])
+prediction_total.show()
 
-prediction_total['prediction'] = prediction_total[['prediction_item_item_cf', 'prediction_als']].mean(axis=1)
-print(prediction_total)
+# todo - can define a custom function to handle NAN's. Currently just chose to drop them.
+prediction_total = prediction_total.withColumn("prediction",
+                                               (prediction_total.prediction_item_item_cf + prediction_total.prediction_als)/2).dropna()
+prediction_total.show()
 
-prediction_total_df = spark.createDataFrame(prediction_total)
-print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total_df))
-print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total_df))
-print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total_df))
+# Print Stats for Hybrid Approach
+print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total))
+print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total))
+print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total))
+
+print("Total Time to run Script {} minutes".format((time.time() - time_start)/60))
 
 sc.stop()

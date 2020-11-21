@@ -18,7 +18,7 @@ from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import IntegerType, DoubleType
+from pyspark.sql.types import IntegerType, DoubleType, StructType, StructField, FloatType
 from sklearn.metrics.pairwise import cosine_similarity
 
 
@@ -137,8 +137,8 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
 
 
 def get_ratings(x, item_similarity, train_df, k):
-    userID = x[1]['userId']
-    movieID = x[1]['movieId']
+    userID = x[0]
+    movieID = x[1]
     # taking only those k users that have rated the movie
     this_item_distances = item_similarity[movieID]
     sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
@@ -164,15 +164,23 @@ def item_item_collaborative_filtering(k, ratings, testDF):
     pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
     pivoted.cache()
     pivoted_df = pivoted.toPandas()
+    print("Matrix creation done ...")
     item_similarity = cosine_similarity(pivoted_df)
     item_similarity = pd.DataFrame(item_similarity)
     item_similarity.index = index
     item_similarity.columns = index
+    print("Item Item similarity matrix creation done ...")
 
-    test_data = testDF.toPandas()
-    item_item_collaborative_labels = [get_ratings(x, item_similarity, pivoted_df, k) for x in test_data[:].iterrows()]
-    test_data['prediction_item_item_cf'] = item_item_collaborative_labels
-    return test_data
+    test_data = testDF.rdd.map(tuple)
+    item_item_results = test_data.map(
+        lambda x: (x[0], x[1], x[2], float(get_ratings(x, item_similarity, pivoted_df, k))))
+    return item_item_results
+
+    # testDF.cache()
+    # test_data = testDF.toPandas()
+    # item_item_collaborative_labels = [get_ratings(x, item_similarity, pivoted_df, k) for x in test_data[:].iterrows()]
+    # test_data['prediction_item_item_cf'] = item_item_collaborative_labels
+    # return test_data
 
 
 def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=False, folds=3):
@@ -226,8 +234,12 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
         print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60))
         print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60),
               file=outFile)
-        prediction_item_item_df = spark.createDataFrame(prediction_item_item)
-        prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction_item_item_cf", "prediction")
+        schema = StructType([StructField('userId', IntegerType(), True),
+                             StructField('movieId', IntegerType(), True),
+                             StructField('rating', FloatType(), True),
+                             StructField('prediction', FloatType(), True)])
+        prediction_item_item_df = spark.createDataFrame(prediction_item_item, schema)
+
         print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df))
         print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df), file=outFile)
         print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df))
@@ -236,7 +248,11 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
         print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df), file=outFile)
 
         test_prediction_with_na = test_prediction_with_na.withColumnRenamed("prediction", "prediction_als")
-        prediction_total = prediction_item_item.merge(
+        prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction", "prediction_item_item_cf")
+        prediction_item_item_df.cache()
+        prediction_item_item_df_pandas = prediction_item_item_df.toPandas()
+
+        prediction_total = prediction_item_item_df_pandas.merge(
             test_prediction_with_na.toPandas(),
             on=['userId', 'movieId', 'rating'])
         print(prediction_total)
@@ -263,7 +279,7 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
 
 if __name__ == "__main__":
     # todo parameters
-    data_size = 100000  # 1000000 # 10000000  # total dataset is 20000263
+    data_size = 1000  # 1000000 # 10000000  # total dataset is 20000263
     # for als if not cross validation
     rank = 1
     # cross validation

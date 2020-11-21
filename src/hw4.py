@@ -91,7 +91,7 @@ cross_validator = CrossValidator(estimator=als_model,
 # Let's split our data into training data and testing data
 # todo - control the amount of data here
 print("Total dataset: ", ratings.count())
-ratings = ratings.limit(1000)  # total dataset is 20000263
+# ratings = ratings.limit(1000)  # total dataset is 20000263
 trainTest = ratings.randomSplit([0.8, 0.2])
 
 trainingDF = trainTest[0]
@@ -126,12 +126,12 @@ mse_evaluator = RegressionEvaluator(
     metricName="mse")
 print("ALS MSE: ", mse_evaluator.evaluate(test_prediction))
 
-# Generate top 10 movie recommendations for each user
-userRecs = cross_validation_model.bestModel.recommendForAllUsers(5)
-userRecs.show()
-# Generate top 10 user recommendations for each movie
-movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
-movieRecs.show()
+# # Generate top 10 movie recommendations for each user
+# userRecs = cross_validation_model.bestModel.recommendForAllUsers(5)
+# userRecs.show()
+# # Generate top 10 user recommendations for each movie
+# movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
+# movieRecs.show()
 
 def fill_ratings(this_user, movieID, col):
     rating = this_user[this_user.movieId == movieID].rating.iloc[0]

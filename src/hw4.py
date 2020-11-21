@@ -7,7 +7,6 @@ Assignment 4: Recommender Systems
 
 Use the MovieLens 20 M dataset
 """
-import math
 import time
 from statistics import mean
 
@@ -137,35 +136,6 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
     return test_prediction, test_prediction_with_na
 
 
-def fill_ratings(this_user, movieID, col):
-    rating = this_user[this_user.movieId == movieID].rating.iloc[0]
-    if math.isnan(rating):
-        rating = 0
-    col[movieID] = rating
-
-
-def fill_Utility_matrix(data, unique_movies, user, utility_matrix):
-    # np array of len()
-    col = dict.fromkeys(unique_movies, 0)
-    this_user = data[data.userId == user]
-    if not this_user.empty:
-        [fill_ratings(this_user, movieID, col) for movieID in this_user.movieId]
-    utility_matrix[user] = col
-
-
-def get_Matrix(data):
-    unique_users = data.userId.unique()
-    unique_movies = data.movieId.unique()
-    print("Unique users: ", len(unique_users))
-    print("Unique movies: ", len(unique_movies))
-    utility_matrix = {}
-    time_start = time.time()
-    [fill_Utility_matrix(data, unique_movies, user, utility_matrix) for user in unique_users]
-    time_end = time.time()
-    print("took {} minutes for creating the matrix.".format((time_end - time_start) / 60))
-    return pd.DataFrame(utility_matrix)
-
-
 def get_ratings(x, item_similarity, train_df, k):
     userID = x[1]['userId']
     movieID = x[1]['movieId']
@@ -173,7 +143,8 @@ def get_ratings(x, item_similarity, train_df, k):
     this_item_distances = item_similarity[movieID]
     sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
     # get the ratings by this user
-    this_user = train_df[userID]
+    this_user = train_df[str(int(userID))]
+    this_user.index = train_df.movieId
 
     ratings_this_user_this_movie = []
     for key in sorted_distances.keys():
@@ -188,17 +159,18 @@ def get_ratings(x, item_similarity, train_df, k):
 
 
 def item_item_collaborative_filtering(k, ratings, testDF):
-    print("Creating item-item matrix ...")
-    train_df = get_Matrix(ratings.toPandas())
-    print("Matrix creation done ...")
-    item_item_index = train_df.index
-    item_similarity = cosine_similarity(train_df)
+    ratings.cache()
+    index = ratings.toPandas().movieId.unique()
+    pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
+    pivoted.cache()
+    pivoted_df = pivoted.toPandas()
+    item_similarity = cosine_similarity(pivoted_df)
     item_similarity = pd.DataFrame(item_similarity)
-    item_similarity.index = item_item_index
-    item_similarity.columns = item_item_index
+    item_similarity.index = index
+    item_similarity.columns = index
 
     test_data = testDF.toPandas()
-    item_item_collaborative_labels = [get_ratings(x, item_similarity, train_df, k) for x in test_data[:].iterrows()]
+    item_item_collaborative_labels = [get_ratings(x, item_similarity, pivoted_df, k) for x in test_data[:].iterrows()]
     test_data['prediction_item_item_cf'] = item_item_collaborative_labels
     return test_data
 
@@ -284,18 +256,18 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
         file_name = '../out/predictions_total-' + time_stamp + "-" + str(data_size) + '.csv'
         prediction_total.to_csv(file_name, index=False)
 
-    print("Total time to run Script: {} minutes".format((time.time() - time_start)/60))
-    print("Total time to run Script: {} minutes".format((time.time() - time_start)/60), file=outFile)
+    print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60))
+    print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60), file=outFile)
     spark.stop()
 
 
 if __name__ == "__main__":
     # todo parameters
-    data_size = 20000263  # 1000000 # 10000000  # total dataset is 20000263
+    data_size = 100000  # 1000000 # 10000000  # total dataset is 20000263
     # for als if not cross validation
     rank = 1
     # cross validation
-    crossValidation = True
+    crossValidation = False
     folds = 5
     # item item collaborative filtering
     cf = True

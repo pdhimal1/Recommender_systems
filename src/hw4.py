@@ -7,6 +7,7 @@ Assignment 4: Recommender Systems
 
 Use the MovieLens 20 M dataset
 """
+import math
 import time
 from statistics import mean
 
@@ -18,18 +19,20 @@ from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql import functions as functions
 from pyspark.sql.types import IntegerType, DoubleType, StructType, StructField, FloatType
 from sklearn.metrics.pairwise import cosine_similarity
 
 
 def init_spark():
     conf = SparkConf()
-    conf.set('spark.executor.memory', '15G')
+    conf.setMaster("local[*]")
+    conf.set('spark.executor.memory', '32G')
     conf.set('spark.driver.memory', '15G')
     conf.set("spark.driver.host", "localhost")
+    conf.set("spark.sql.pivotMaxValues", "140000") # Full dataset has 138,493 distinct values
     conf.setAppName("hw4")
     # conf.set('spark.driver.maxResultSize', '15G')
-
     sc = SparkContext(conf=conf)
     spark = SparkSession(sc)
     return spark
@@ -159,10 +162,10 @@ def get_ratings(x, item_similarity, train_df, k):
 
 
 def item_item_collaborative_filtering(k, ratings, testDF):
-    ratings.cache()
-    index = ratings.toPandas().movieId.unique()
+    # get unique values in a column
+    index = ratings.select('movieId').distinct().rdd.map(lambda r: r[0]).collect()
     pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
-    pivoted.cache()
+    print("Pivot creation done ...")
     pivoted_df = pivoted.toPandas()
     print("Matrix creation done ...")
     item_similarity = cosine_similarity(pivoted_df)
@@ -176,11 +179,11 @@ def item_item_collaborative_filtering(k, ratings, testDF):
         lambda x: (x[0], x[1], x[2], float(get_ratings(x, item_similarity, pivoted_df, k))))
     return item_item_results
 
-    # testDF.cache()
-    # test_data = testDF.toPandas()
-    # item_item_collaborative_labels = [get_ratings(x, item_similarity, pivoted_df, k) for x in test_data[:].iterrows()]
-    # test_data['prediction_item_item_cf'] = item_item_collaborative_labels
-    # return test_data
+
+def hybrid_calculation_function(rating_item_item, rating_als):
+    if math.isnan(rating_als):
+        return rating_item_item
+    return (rating_item_item * 0.6) + (rating_als * 0.4)
 
 
 def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=False, folds=3):
@@ -219,12 +222,15 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
         crossValidation,
         folds=folds)
     test_prediction.show()
-    print("ALS RMSE: ", rmse_evaluator.evaluate(test_prediction))
-    print("ALS RMSE: ", rmse_evaluator.evaluate(test_prediction), file=outFile)
-    print("ALS MAE: ", mae_evaluator.evaluate(test_prediction))
-    print("ALS MAE: ", mae_evaluator.evaluate(test_prediction), file=outFile)
-    print("ALS MSE: ", mse_evaluator.evaluate(test_prediction))
-    print("ALS MSE: ", mse_evaluator.evaluate(test_prediction), file=outFile)
+    rmse = rmse_evaluator.evaluate(test_prediction)
+    print("ALS RMSE: ", rmse)
+    print("ALS RMSE: ", rmse, file=outFile)
+    mae = mae_evaluator.evaluate(test_prediction)
+    print("ALS MAE: ", mae)
+    print("ALS MAE: ", mae, file=outFile)
+    mse = mse_evaluator.evaluate(test_prediction)
+    print("ALS MSE: ", mse)
+    print("ALS MSE: ", mse, file=outFile)
 
     if cf:
         print("Running item-item collaborative filtering ...")
@@ -239,38 +245,46 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
                              StructField('rating', FloatType(), True),
                              StructField('prediction', FloatType(), True)])
         prediction_item_item_df = spark.createDataFrame(prediction_item_item, schema)
+        print("item-item collaborative filtering prediction dataframe: ")
+        prediction_item_item_df.show()
+        print("Length of the prediction dataset: ", prediction_item_item_df.count())
 
-        print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df))
-        print("Item-Item CF RMSE: ", rmse_evaluator.evaluate(prediction_item_item_df), file=outFile)
-        print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df))
-        print("Item-Item CF MAE: ", mae_evaluator.evaluate(prediction_item_item_df), file=outFile)
-        print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df))
-        print("Item-Item CF MSE: ", mse_evaluator.evaluate(prediction_item_item_df), file=outFile)
+        print("Running evaluations for item-item collaborative filtering ...")
+        rmse = rmse_evaluator.evaluate(prediction_item_item_df)
+        print("Item-Item CF RMSE: ", rmse)
+        print("Item-Item CF RMSE: ", rmse, file=outFile)
+        mae = mae_evaluator.evaluate(prediction_item_item_df)
+        print("Item-Item CF MAE: ", mae)
+        print("Item-Item CF MAE: ", mae, file=outFile)
+        mse = mse_evaluator.evaluate(prediction_item_item_df)
+        print("Item-Item CF MSE: ", mse)
+        print("Item-Item CF MSE: ", mse, file=outFile)
 
+        print("Combining ALS with item-item collaborative filtering ...")
         test_prediction_with_na = test_prediction_with_na.withColumnRenamed("prediction", "prediction_als")
         prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction", "prediction_item_item_cf")
-        prediction_item_item_df.cache()
-        prediction_item_item_df_pandas = prediction_item_item_df.toPandas()
 
-        prediction_total = prediction_item_item_df_pandas.merge(
-            test_prediction_with_na.toPandas(),
-            on=['userId', 'movieId', 'rating'])
-        print(prediction_total)
+        prediction_total = prediction_item_item_df.join(test_prediction_with_na, ['userId', 'movieId', 'rating'])
 
-        # should probably give 60% to item item
-        prediction_total['prediction'] = prediction_total[['prediction_item_item_cf', 'prediction_als']].mean(axis=1)
-        print(prediction_total)
+        udf_hybrid_calc_function = functions.udf(hybrid_calculation_function, DoubleType())
+        prediction_total_df = prediction_total.withColumn("prediction",
+                                                          udf_hybrid_calc_function("prediction_item_item_cf",
+                                                                                   "prediction_als"))
 
-        prediction_total_df = spark.createDataFrame(prediction_total)
-        print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total_df))
-        print("Hybrid RMSE: ", rmse_evaluator.evaluate(prediction_total_df), file=outFile)
-        print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total_df))
-        print("Hybrid MAE: ", mae_evaluator.evaluate(prediction_total_df), file=outFile)
-        print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total_df))
-        print("Hybrid MSE: ", mse_evaluator.evaluate(prediction_total_df), file=outFile)
+        print("Running evaluations for hybrid method...")
+        rmse = rmse_evaluator.evaluate(prediction_total_df)
+        print("Hybrid RMSE: ", rmse)
+        print("Hybrid RMSE: ", rmse, file=outFile)
+        mae = mae_evaluator.evaluate(prediction_total_df)
+        print("Hybrid MAE: ", mae)
+        print("Hybrid MAE: ", mae, file=outFile)
+        mse = mse_evaluator.evaluate(prediction_total_df)
+        print("Hybrid MSE: ", mse)
+        print("Hybrid MSE: ", mse, file=outFile)
 
-        file_name = '../out/predictions_total-' + time_stamp + "-" + str(data_size) + '.csv'
-        prediction_total.to_csv(file_name, index=False)
+        if data_size >= 1000000:
+            file_name = '../out/predictions_total-' + time_stamp + "-" + str(data_size) + '.csv'
+            prediction_total.write.csv(file_name)
 
     print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60))
     print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60), file=outFile)

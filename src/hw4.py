@@ -12,7 +12,6 @@ import time
 from statistics import mean
 
 import pandas as pd
-from pyspark import SparkContext, SparkConf
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
@@ -23,16 +22,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 def init_spark():
-    conf = SparkConf()
-    conf.setMaster("local[*]")
-    conf.set('spark.executor.memory', '32G')
-    conf.set('spark.driver.memory', '15G')
-    conf.set("spark.driver.host", "localhost")
-    conf.set("spark.sql.pivotMaxValues", "140000") # Full dataset has 138,493 distinct values
-    conf.setAppName("hw4")
-    # conf.set('spark.driver.maxResultSize', '15G')
-    sc = SparkContext(conf=conf)
-    spark = SparkSession(sc)
+    spark = SparkSession.builder \
+        .config("spark.executor.memory", "32g") \
+        .config("spark.driver.memory", "32g") \
+        .config("spark.sql.pivotMaxValues", "140000") \
+        .config("spark.executor.cores", 8) \
+        .appName("hw4") \
+        .master("local[*]") \
+        .getOrCreate()
     return spark
 
 

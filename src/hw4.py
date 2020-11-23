@@ -11,7 +11,6 @@ import math
 import time
 from statistics import mean
 
-import numpy as np
 import pandas as pd
 from pyspark import SparkContext, SparkConf
 from pyspark.ml.evaluation import RegressionEvaluator
@@ -19,8 +18,7 @@ from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql import functions as functions
-from pyspark.sql.types import IntegerType, DoubleType, StructType, StructField, FloatType
+from pyspark.sql.types import IntegerType, DoubleType
 from sklearn.metrics.pairwise import cosine_similarity
 
 
@@ -139,9 +137,7 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
     return test_prediction, test_prediction_with_na
 
 
-def get_ratings(x, item_similarity, train_df, k):
-    userID = x[0]
-    movieID = x[1]
+def get_ratings(userID, movieID, item_similarity, train_df, k):
     # taking only those k users that have rated the movie
     this_item_distances = item_similarity[movieID]
     sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
@@ -158,7 +154,7 @@ def get_ratings(x, item_similarity, train_df, k):
             ratings_this_user_this_movie.append(this_user_this_movie)
 
     item_rating = mean(ratings_this_user_this_movie)
-    return np.float16(item_rating)
+    return float(item_rating)
 
 
 def item_item_collaborative_filtering(k, ratings, testDF):
@@ -174,10 +170,16 @@ def item_item_collaborative_filtering(k, ratings, testDF):
     item_similarity.columns = index
     print("Item Item similarity matrix creation done ...")
 
-    test_data = testDF.rdd.map(tuple)
-    item_item_results = test_data.map(
-        lambda x: (x[0], x[1], x[2], float(get_ratings(x, item_similarity, pivoted_df, k))))
-    return item_item_results
+    udf_test_function = F.udf(lambda x, y: get_ratings(
+        x,
+        y,
+        item_similarity,
+        pivoted_df,
+        k), DoubleType())
+    item_item_results_df = testDF.withColumn("prediction", udf_test_function("userId", "movieId"))
+    item_item_results_df.show()
+
+    return item_item_results_df
 
 
 def hybrid_calculation_function(rating_item_item, rating_als):
@@ -235,16 +237,11 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
     if cf:
         print("Running item-item collaborative filtering ...")
         time_start_cf = time.time()
-        prediction_item_item = item_item_collaborative_filtering(k, ratings, testDF)
+        prediction_item_item_df = item_item_collaborative_filtering(k, ratings, testDF)
         time_end = time.time()
         print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60))
         print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60),
               file=outFile)
-        schema = StructType([StructField('userId', IntegerType(), True),
-                             StructField('movieId', IntegerType(), True),
-                             StructField('rating', FloatType(), True),
-                             StructField('prediction', FloatType(), True)])
-        prediction_item_item_df = spark.createDataFrame(prediction_item_item, schema)
         print("item-item collaborative filtering prediction dataframe: ")
         prediction_item_item_df.show()
         print("Length of the prediction dataset: ", prediction_item_item_df.count())
@@ -266,7 +263,7 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
 
         prediction_total = prediction_item_item_df.join(test_prediction_with_na, ['userId', 'movieId', 'rating'])
 
-        udf_hybrid_calc_function = functions.udf(hybrid_calculation_function, DoubleType())
+        udf_hybrid_calc_function = F.udf(hybrid_calculation_function, DoubleType())
         prediction_total_df = prediction_total.withColumn("prediction",
                                                           udf_hybrid_calc_function("prediction_item_item_cf",
                                                                                    "prediction_als"))

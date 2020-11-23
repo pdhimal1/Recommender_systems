@@ -9,32 +9,28 @@ Use the MovieLens 20 M dataset
 """
 import math
 import time
-from statistics import mean
+from statistics import mean, StatisticsError
 
 import numpy as np
-import pandas as pd
-from pyspark import SparkContext, SparkConf
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.mllib.linalg.distributed import RowMatrix
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql import functions as functions
 from pyspark.sql.types import IntegerType, DoubleType, StructType, StructField, FloatType
-from sklearn.metrics.pairwise import cosine_similarity
 
 
 def init_spark():
-    conf = SparkConf()
-    conf.setMaster("local[*]")
-    conf.set('spark.executor.memory', '32G')
-    conf.set('spark.driver.memory', '15G')
-    conf.set("spark.driver.host", "localhost")
-    conf.set("spark.sql.pivotMaxValues", "140000") # Full dataset has 138,493 distinct values
-    conf.setAppName("hw4")
-    # conf.set('spark.driver.maxResultSize', '15G')
-    sc = SparkContext(conf=conf)
-    spark = SparkSession(sc)
+    spark = SparkSession.builder \
+        .config("spark.executor.memory", "32g") \
+        .config("spark.driver.memory", "32g") \
+        .config("spark.sql.pivotMaxValues", "140000") \
+        .config("spark.executor.cores", 8) \
+        .appName("hw4") \
+        .master("local[*]") \
+        .getOrCreate()
     return spark
 
 
@@ -139,45 +135,52 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
     return test_prediction, test_prediction_with_na
 
 
-def get_ratings(x, item_similarity, train_df, k):
-    userID = x[0]
-    movieID = x[1]
-    # taking only those k users that have rated the movie
-    this_item_distances = item_similarity[movieID]
-    sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
-    # get the ratings by this user
-    this_user = train_df[str(int(userID))]
-    this_user.index = train_df.movieId
+def get_ratings(x, pivoted, cosine_similarities_matrix, columns, k):
+    userID = x[1]['userId']
+    movieID = x[1]['movieId']
+    this_movie = cosine_similarities_matrix.filter(
+        cosine_similarities_matrix.movie1 == columns.index(str(int(movieID))))
+    cosine_similarities_movies = this_movie.sort(this_movie.sim.desc()).select('movie2').limit(k * 100).toPandas()
+
+    this_user = pivoted.select(['movieId', str(int(userID))]).toPandas().set_index('movieId')
 
     ratings_this_user_this_movie = []
-    for key in sorted_distances.keys():
-        if len(ratings_this_user_this_movie) >= k:
-            break
-        this_user_this_movie = this_user[key]
+    for x in cosine_similarities_movies.iterrows():
+        key_movie = x[1]['movie2']
+        actual_key = columns[key_movie]
+        this_user_this_movie = this_user.loc[int(actual_key)][0]
         if this_user_this_movie > 0:
             ratings_this_user_this_movie.append(this_user_this_movie)
 
-    item_rating = mean(ratings_this_user_this_movie)
+    try:
+        item_rating = mean(ratings_this_user_this_movie)
+    except StatisticsError:
+        item_rating = 0
+    print("MovieID: ", movieID, " UserID ", userID, " Rating: ", item_rating)
     return np.float16(item_rating)
 
 
 def item_item_collaborative_filtering(k, ratings, testDF):
-    # get unique values in a column
-    index = ratings.select('movieId').distinct().rdd.map(lambda r: r[0]).collect()
     pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
-    print("Pivot creation done ...")
-    pivoted_df = pivoted.toPandas()
-    print("Matrix creation done ...")
-    item_similarity = cosine_similarity(pivoted_df)
-    item_similarity = pd.DataFrame(item_similarity)
-    item_similarity.index = index
-    item_similarity.columns = index
-    print("Item Item similarity matrix creation done ...")
+    pivoted_T = ratings.groupBy("userId").pivot('movieId').sum('rating').na.fill(0)
 
-    test_data = testDF.rdd.map(tuple)
-    item_item_results = test_data.map(
-        lambda x: (x[0], x[1], x[2], float(get_ratings(x, item_similarity, pivoted_df, k))))
-    return item_item_results
+    pivoted_dropped = pivoted_T.drop(pivoted_T.userId)
+    columns = pivoted_dropped.columns
+    mat = RowMatrix(pivoted_dropped.rdd.map(tuple))
+    simsPerfect = mat.columnSimilarities()
+    similarity_df = simsPerfect.entries.toDF()
+    similarity_df = similarity_df.toDF(*['movie1', 'movie2', 'sim'])
+
+    test_data = testDF.toPandas()
+    item_item_collaborative_labels = [get_ratings(
+        x,
+        pivoted,
+        similarity_df,
+        columns,
+        k) for x in test_data[:].iterrows()]
+
+    test_data['prediction_item_item_cf'] = item_item_collaborative_labels
+    return test_data
 
 
 def hybrid_calculation_function(rating_item_item, rating_als):

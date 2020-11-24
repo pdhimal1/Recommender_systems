@@ -22,14 +22,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 def init_spark():
-    spark = SparkSession.builder \
-        .config("spark.executor.memory", "32g") \
-        .config("spark.driver.memory", "32g") \
-        .config("spark.sql.pivotMaxValues", "140000") \
-        .config("spark.executor.cores", "8") \
-        .appName("hw4") \
-        .master("local[*]") \
-        .getOrCreate()
+    spark = SparkSession.builder.master("local[*]").appName("hw4").config("spark.driver.memory", "32g").getOrCreate()
     return spark
 
 
@@ -100,6 +93,7 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
     model = get_model(rmse_evaluator, rank, crossValidation, folds=folds)
     model = model.fit(trainingDF)
     test_prediction = model.transform(testDF)
+    test_prediction.cache()
     time_end = time.time()
 
     if crossValidation:
@@ -134,33 +128,13 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
     return test_prediction, test_prediction_with_na
 
 
-def _map_to_pandas(rdds):
-    """ Needs to be here due to pickling issues """
-    return [pd.DataFrame(list(rdds))]
-
-
-def toPandas(df, n_partitions=None):
-    """
-    Returns the contents of `df` as a local `pandas.DataFrame` in a speedy fashion. The DataFrame is
-    repartitioned if `n_partitions` is passed.
-    :param df:              pyspark.sql.DataFrame
-    :param n_partitions:    int or None
-    :return:                pandas.DataFrame
-    """
-    if n_partitions is not None: df = df.repartition(n_partitions)
-    df_pand = df.rdd.mapPartitions(_map_to_pandas).collect()
-    df_pand = pd.concat(df_pand)
-    df_pand.columns = df.columns
-    return df_pand
-
-
 def get_ratings(userID, movieID, item_similarity, train_df, k):
     # taking only those k users that have rated the movie
     this_item_distances = item_similarity[movieID]
     sorted_distances = this_item_distances.sort_values(ascending=False)[1:]
     # get the ratings by this user
-    this_user = train_df[str(int(userID))]
-    this_user.index = train_df.movieId
+    this_user = train_df[int(userID)]
+    # this_user.index = train_df.movieId
 
     ratings_this_user_this_movie = []
     for key in sorted_distances.keys():
@@ -174,26 +148,25 @@ def get_ratings(userID, movieID, item_similarity, train_df, k):
     return float(item_rating)
 
 
-def item_item_collaborative_filtering(k, ratings, testDF):
+def item_item_collaborative_filtering(k, dataSize, testDF):
     # get unique values in a column
-    pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
-    print("Pivot creation done ...")
-    pivoted_df = toPandas(pivoted)
+    ratings = pd.read_csv('../data/ml-20m/ratings.csv')
+    ratings = ratings.drop("timestamp", axis=1)
+    ratings = ratings[:dataSize]
+    pivoted = ratings.pivot(index='movieId', columns='userId', values='rating').fillna(0)
     print("Matrix creation done ...")
-    pivoted_df_indexed = pivoted_df.set_index('movieId')
-    index = pivoted_df_indexed.index
 
-    item_similarity = cosine_similarity(pivoted_df_indexed)
+    item_similarity = cosine_similarity(pivoted)
     item_similarity = pd.DataFrame(item_similarity)
-    item_similarity.index = index
-    item_similarity.columns = index
+    item_similarity.index = pivoted.index
+    item_similarity.columns = pivoted.index
     print("Item Item similarity matrix creation done ...")
 
     udf_test_function = F.udf(lambda x, y: get_ratings(
         x,
         y,
         item_similarity,
-        pivoted_df,
+        pivoted,
         k), DoubleType())
     item_item_results_df = testDF.withColumn("prediction", udf_test_function("userId", "movieId"))
     return item_item_results_df
@@ -254,16 +227,9 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
     if cf:
         print("Running item-item collaborative filtering ...")
         time_start_cf = time.time()
-        prediction_item_item_df = item_item_collaborative_filtering(k, ratings, testDF)
-        prediction_item_item_df.cache()  # cache?
-        time_end = time.time()
-        print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60))
-        print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60),
-              file=outFile)
-        print("item-item collaborative filtering prediction dataframe: ")
-        prediction_item_item_df.show()
-        print("Length of the prediction dataset: ", prediction_item_item_df.count())
 
+        prediction_item_item_df = item_item_collaborative_filtering(k, data_size, testDF)
+        prediction_item_item_df.cache()
         print("Running evaluations for item-item collaborative filtering ...")
         rmse = rmse_evaluator.evaluate(prediction_item_item_df)
         print("Item-Item CF RMSE: ", rmse)
@@ -275,6 +241,11 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
         print("Item-Item CF MSE: ", mse)
         print("Item-Item CF MSE: ", mse, file=outFile)
 
+        time_end = time.time()
+        print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60))
+        print("took {} minutes for item-item collaborative filtering.".format((time_end - time_start_cf) / 60),
+              file=outFile)
+
         print("Combining ALS with item-item collaborative filtering ...")
         test_prediction_with_na = test_prediction_with_na.withColumnRenamed("prediction", "prediction_als")
         prediction_item_item_df = prediction_item_item_df.withColumnRenamed("prediction", "prediction_item_item_cf")
@@ -282,24 +253,24 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
         prediction_total = prediction_item_item_df.join(test_prediction_with_na, ['userId', 'movieId', 'rating'])
 
         udf_hybrid_calc_function = F.udf(hybrid_calculation_function, DoubleType())
-        prediction_total_df = prediction_total.withColumn("prediction",
-                                                          udf_hybrid_calc_function("prediction_item_item_cf",
-                                                                                   "prediction_als"))
+        prediction_total = prediction_total.withColumn("prediction",
+                                                       udf_hybrid_calc_function("prediction_item_item_cf",
+                                                                                "prediction_als"))
 
         print("Running evaluations for hybrid method...")
-        rmse = rmse_evaluator.evaluate(prediction_total_df)
+        rmse = rmse_evaluator.evaluate(prediction_total)
         print("Hybrid RMSE: ", rmse)
         print("Hybrid RMSE: ", rmse, file=outFile)
-        mae = mae_evaluator.evaluate(prediction_total_df)
+        mae = mae_evaluator.evaluate(prediction_total)
         print("Hybrid MAE: ", mae)
         print("Hybrid MAE: ", mae, file=outFile)
-        mse = mse_evaluator.evaluate(prediction_total_df)
+        mse = mse_evaluator.evaluate(prediction_total)
         print("Hybrid MSE: ", mse)
         print("Hybrid MSE: ", mse, file=outFile)
 
         if data_size >= 1000000:
             file_name = '../out/predictions_total-' + time_stamp + "-" + str(data_size) + '.csv'
-            prediction_total.write.csv(file_name)
+            prediction_total.write.option("header", "true").csv(file_name)
 
     print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60))
     print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60), file=outFile)

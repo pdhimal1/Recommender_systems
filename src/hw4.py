@@ -9,12 +9,14 @@ Use the MovieLens 20 M dataset
 """
 import math
 import time
-from statistics import mean
+from statistics import mean, StatisticsError
 
+import numpy as np
 import pandas as pd
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.recommendation import ALS
 from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.mllib.linalg.distributed import RowMatrix
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType, DoubleType
@@ -172,6 +174,109 @@ def item_item_collaborative_filtering(k, dataSize, testDF):
     return item_item_results_df
 
 
+def get_ratings_pyspark1(userID, movieId, pivoted, cosine_similarities_matrix, column_to_sims_dict, sims_to_column_dict,
+                        k):
+    this_movie = cosine_similarities_matrix.filter(
+        cosine_similarities_matrix.movie1 == column_to_sims_dict[str(int(movieId))])
+    cosine_similarities_movies = this_movie.sort(this_movie.sim.desc()).select('movie2').limit(k * 10).toPandas()
+
+    this_user = pivoted.select(['movieId', str(int(userID))]).toPandas().set_index('movieId')
+
+    ratings_this_user_this_movie = []
+    for x in cosine_similarities_movies.iterrows():
+        if len(ratings_this_user_this_movie) >= k:
+            break
+        key_movie = x[1]['movie2']
+        actual_key = sims_to_column_dict[int(key_movie)]
+        this_user_this_movie = this_user.loc[int(actual_key)][0]
+        if this_user_this_movie > 0:
+            ratings_this_user_this_movie.append(this_user_this_movie)
+
+    try:
+        item_rating = mean(ratings_this_user_this_movie)
+    except StatisticsError:
+        item_rating = 0
+    print("MovieID: ", movieId, " UserID ", userID, " Rating: ", item_rating)
+    return np.float16(item_rating)
+
+
+def item_item_collaborative_filtering_pyspark1(k, ratings, testDF):
+    pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
+    pivoted_T = ratings.groupBy("userId").pivot('movieId').sum('rating').na.fill(0)
+
+    pivoted_dropped = pivoted_T.drop(pivoted_T.userId)
+    columns = pivoted_dropped.columns
+    print("Creating similarity dataframe ...")
+    column_to_sims_dict = dict(zip(columns, range(len(columns))))
+    sims_to_column_dict = dict(zip(range(len(columns)), columns))
+    mat = RowMatrix(pivoted_dropped.rdd.map(tuple))
+    simsPerfect = mat.columnSimilarities()
+    similarity_df = simsPerfect.entries.toDF()
+    similarity_df = similarity_df.toDF(*['movie1', 'movie2', 'sim'])
+    print("Similarity matrix creation done ...")
+
+    udf_test_function = F.udf(lambda x, y: get_ratings_pyspark1(
+        x,
+        y,
+        pivoted,
+        similarity_df,
+        column_to_sims_dict,
+        sims_to_column_dict,
+        k), DoubleType())
+    prediction_total_df = testDF.withColumn("prediction", udf_test_function("userId", "movieId"))
+    prediction_total_df.show()
+
+    return prediction_total_df
+
+
+def get_ratings_pyspark(x, pivoted, cosine_similarities_matrix, columns, k):
+    userID = x[1]['userId']
+    movieID = x[1]['movieId']
+    this_movie = cosine_similarities_matrix.filter(
+        cosine_similarities_matrix.movie1 == columns.index(str(int(movieID))))
+    cosine_similarities_movies = this_movie.sort(this_movie.sim.desc()).select('movie2').limit(k * 100).toPandas()
+
+    this_user = pivoted.select(['movieId', str(int(userID))]).toPandas().set_index('movieId')
+
+    ratings_this_user_this_movie = []
+    for x in cosine_similarities_movies.iterrows():
+        key_movie = x[1]['movie2']
+        actual_key = columns[key_movie]
+        this_user_this_movie = this_user.loc[int(actual_key)][0]
+        if this_user_this_movie > 0:
+            ratings_this_user_this_movie.append(this_user_this_movie)
+
+    try:
+        item_rating = mean(ratings_this_user_this_movie)
+    except StatisticsError:
+        item_rating = 0
+    print("MovieID: ", movieID, " UserID ", userID, " Rating: ", item_rating)
+    return np.float16(item_rating)
+
+
+def item_item_collaborative_filtering_pyspark(k, ratings, testDF):
+    pivoted = ratings.groupBy("movieId").pivot('userId').sum('rating').na.fill(0)
+    pivoted_T = ratings.groupBy("userId").pivot('movieId').sum('rating').na.fill(0)
+
+    pivoted_dropped = pivoted_T.drop(pivoted_T.userId)
+    columns = pivoted_dropped.columns
+    mat = RowMatrix(pivoted_dropped.rdd.map(tuple))
+    simsPerfect = mat.columnSimilarities()
+    similarity_df = simsPerfect.entries.toDF()
+    similarity_df = similarity_df.toDF(*['movie1', 'movie2', 'sim'])
+
+    test_data = testDF.toPandas()
+    item_item_collaborative_labels = [get_ratings_pyspark(
+        x,
+        pivoted,
+        similarity_df,
+        columns,
+        k) for x in test_data[:].iterrows()]
+
+    test_data['prediction_item_item_cf'] = item_item_collaborative_labels
+    return test_data
+
+
 def hybrid_calculation_function(rating_item_item, rating_als):
     if math.isnan(rating_als):
         return rating_item_item
@@ -227,9 +332,8 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
     if cf:
         print("Running item-item collaborative filtering ...")
         time_start_cf = time.time()
-
-        prediction_item_item_df = item_item_collaborative_filtering(k, data_size, testDF)
-        prediction_item_item_df.cache()
+        prediction_item_item = item_item_collaborative_filtering_pyspark(k, ratings, testDF)
+        prediction_item_item_df = spark.createDataFrame(prediction_item_item)
         print("Running evaluations for item-item collaborative filtering ...")
         rmse = rmse_evaluator.evaluate(prediction_item_item_df)
         print("Item-Item CF RMSE: ", rmse)
@@ -298,7 +402,7 @@ if __name__ == "__main__":
     # for als if not cross validation
     rank = 1
     # cross validation
-    crossValidation = False
+    crossValidation = True
     folds = 5
     # item item collaborative filtering
     cf = True

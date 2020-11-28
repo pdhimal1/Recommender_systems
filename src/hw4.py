@@ -272,6 +272,21 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
             file_name = '../out/predictions_total-' + time_stamp + "-" + str(data_size) + '.csv'
             prediction_total.write.option("header", "true").csv(file_name)
 
+        print("Recommending movies for 15 selected users: ")
+        print("Recommending movies for 15 selected users: ", file=out_file)
+        movies = spark.read.option("header", "true").csv('../data/ml-20m/movies.csv')
+        unique_users = prediction_total.select('userId').distinct().limit(15).rdd.map(lambda r: r[0]).collect()
+        for user in unique_users[:]:
+            predictions_this_user = prediction_total.filter(prediction_total.userId == user)
+            predictions_this_user = predictions_this_user.sort(prediction_total.prediction.desc())
+            top_ten_recommendations = predictions_this_user.limit(10)
+            top_ten_recommendations = top_ten_recommendations.select('movieId').rdd.map(lambda r: r[0]).collect()
+            movies_filtered = movies.filter(movies.movieId.isin(top_ten_recommendations))
+            print("Movie Recommendation for user {} :".format(user))
+            movies_filtered.show()
+            print("Movie Recommendation for user {} :".format(user), file=out_file)
+            print(movies_filtered.toPandas().set_index("movieId"), file=out_file)
+
     print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60))
     print("Total time to run Script: {} minutes".format((time.time() - time_start) / 60), file=outFile)
     spark.stop()

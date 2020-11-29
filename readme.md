@@ -19,12 +19,6 @@ Assignment 4: Recommendation Systems
   * `readme.md`
 
 
-#### Dependency:
-This python program depends on the following modules:
-  * time
-  * pyspark
-
-
 #### How to run this program:
   * Navigate to the `src` directory and run one of the files using the command below:
   * `spark-submit hw4.py` OR `python hw4.py`

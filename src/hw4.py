@@ -98,8 +98,6 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
 
     if crossValidation:
         # train the ALS model for collaborative filtering
-        # todo - Use the Products of Factors technique for your system and optimize the loss function with ALS.
-        # See slides
         print("Best model selected from cross validation:\n", model.bestModel)
         print("Best model selected from cross validation:\n", model.bestModel, file=outFile)
         print("Folds: ", folds, file=outFile)
@@ -117,13 +115,6 @@ def als(rmse_evaluator, trainingDF, testDF, outFile, rank=4, crossValidation=Fal
 
     test_prediction_with_na = test_prediction
     test_prediction = test_prediction.na.drop()
-
-    # Generate top 10 movie recommendations for each user
-    # userRecs = cross_validation_model.bestModel.recommendForAllUsers(5)
-    # userRecs.show()
-    # Generate top 10 user recommendations for each movie
-    # movieRecs = cross_validation_model.bestModel.recommendForAllItems(5)
-    # movieRecs.show()
 
     return test_prediction, test_prediction_with_na
 
@@ -293,12 +284,11 @@ def main(data_size, k, outFile, time_stamp, cf=False, rank=4, crossValidation=Fa
 
 
 if __name__ == "__main__":
-    # todo parameters
     data_size = 1000000  # 1000000 # 10000000  # total dataset is 20000263
     # for als if not cross validation
     rank = 1
     # cross validation
-    crossValidation = False
+    crossValidation = True
     folds = 5
     # item item collaborative filtering
     cf = True

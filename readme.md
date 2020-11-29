@@ -9,6 +9,7 @@ Assignment 4: Recommendation Systems
 #### Project organization:
   * `src` directory
     * `hw4.py` -> source code for homework 4
+    * `read_results.ipynb` -> jupyter notebook to read the saved prediction dataframe as a CSV file.
   * `report` directory
     * `report.pdf`
   * `output` directory

@@ -1,0 +1,203 @@
+ALS cross validation with 5 folds ...
+Best model selected from cross validation:
+ ALSModel: uid=ALS_73d01faaa65d, rank=1
+Folds:  5
+ALS RMSE:  0.8714055532118293
+ALS MAE:  0.6780906677816083
+ALS MSE:  0.7593476381684141
+Item-Item CF RMSE:  0.8678297002539033
+Item-Item CF MAE:  0.6530145507271837
+Item-Item CF MSE:  0.7531283886427795
+Hybrid RMSE:  0.8343864404418501
+Hybrid MAE:  0.6354972325180701
+Hybrid MSE:  0.6962007319932211
+Recommending movies for 15 selected users:
+Movie Recommendation for user 148 :
+                                      title                                       genres
+movieId
+539             Sleepless in Seattle (1993)                         Comedy|Drama|Romance
+908               North by Northwest (1959)    Action|Adventure|Mystery|Romance|Thriller
+915                          Sabrina (1954)                               Comedy|Romance
+1097      E.T. the Extra-Terrestrial (1982)                        Children|Drama|Sci-Fi
+1380                          Grease (1978)                       Comedy|Musical|Romance
+1777             Wedding Singer, The (1998)                               Comedy|Romance
+2006              Mask of Zorro, The (1998)                        Action|Comedy|Romance
+3097     Shop Around the Corner, The (1940)                         Comedy|Drama|Romance
+4016       Emperor's New Groove, The (2000)  Adventure|Animation|Children|Comedy|Fantasy
+4308                    Moulin Rouge (2001)                        Drama|Musical|Romance
+Movie Recommendation for user 1645 :
+                                      title                  genres
+movieId
+6                               Heat (1995)   Action|Crime|Thriller
+17             Sense and Sensibility (1995)           Drama|Romance
+50               Usual Suspects, The (1995)  Crime|Mystery|Thriller
+162                            Crumb (1994)             Documentary
+249                 Immortal Beloved (1994)           Drama|Romance
+272      Madness of King George, The (1994)            Comedy|Drama
+337      What's Eating Gilbert Grape (1993)                   Drama
+475        In the Name of the Father (1993)                   Drama
+515          Remains of the Day, The (1993)           Drama|Romance
+527                 Schindler's List (1993)               Drama|War
+Movie Recommendation for user 1829 :
+                                                     title                   genres
+movieId
+951                                 His Girl Friday (1940)           Comedy|Romance
+971                           Cat on a Hot Tin Roof (1958)                    Drama
+1084                               Bonnie and Clyde (1967)              Crime|Drama
+1196     Star Wars: Episode V - The Empire Strikes Back...  Action|Adventure|Sci-Fi
+1198     Raiders of the Lost Ark (Indiana Jones and the...         Action|Adventure
+1204                             Lawrence of Arabia (1962)      Adventure|Drama|War
+1291             Indiana Jones and the Last Crusade (1989)         Action|Adventure
+1304             Butch Cassidy and the Sundance Kid (1969)           Action|Western
+1674                                        Witness (1985)   Drama|Romance|Thriller
+3468                                   Hustler, The (1961)                    Drama
+Movie Recommendation for user 3997 :
+                                                 title                genres
+movieId
+39                                     Clueless (1995)        Comedy|Romance
+923                                Citizen Kane (1941)         Drama|Mystery
+1207                      To Kill a Mockingbird (1962)                 Drama
+2321                              Pleasantville (1998)  Comedy|Drama|Fantasy
+4537                           Running on Empty (1988)                 Drama
+5952     Lord of the Rings: The Two Towers, The (2002)     Adventure|Fantasy
+6711                        Lost in Translation (2003)  Comedy|Drama|Romance
+34162                          Wedding Crashers (2005)        Comedy|Romance
+Movie Recommendation for user 4935 :
+                                                     title                   genres
+movieId
+50                              Usual Suspects, The (1995)   Crime|Mystery|Thriller
+1732                              Big Lebowski, The (1998)             Comedy|Crime
+2137                                Charlotte's Web (1973)       Animation|Children
+3421                                   Animal House (1978)                   Comedy
+3897                                  Almost Famous (2000)                    Drama
+6552                            Dirty Pretty Things (2002)     Crime|Drama|Thriller
+31309    Rocco and His Brothers (Rocco e i suoi fratell...              Crime|Drama
+44555    Lives of Others, The (Das leben der Anderen) (...   Drama|Romance|Thriller
+58559                              Dark Knight, The (2008)  Action|Crime|Drama|IMAX
+94959                              Moonrise Kingdom (2012)     Comedy|Drama|Romance
+Movie Recommendation for user 7754 :
+                                                     title                                       genres
+movieId
+1                                         Toy Story (1995)  Adventure|Animation|Children|Comedy|Fantasy
+1097                     E.T. the Extra-Terrestrial (1982)                        Children|Drama|Sci-Fi
+1197                            Princess Bride, The (1987)      Action|Adventure|Comedy|Fantasy|Romance
+1198     Raiders of the Lost Ark (Indiana Jones and the...                             Action|Adventure
+1199                                         Brazil (1985)                               Fantasy|Sci-Fi
+1200                                         Aliens (1986)               Action|Adventure|Horror|Sci-Fi
+2502                                   Office Space (1999)                                 Comedy|Crime
+2788     Monty Python's And Now for Something Completel...                                       Comedy
+2791                                      Airplane! (1980)                                       Comedy
+3868     Naked Gun: From the Files of Police Squad!, Th...                  Action|Comedy|Crime|Romance
+Movie Recommendation for user 7880 :
+                                                     title                                           genres
+movieId
+920                              Gone with the Wind (1939)                                Drama|Romance|War
+1197                            Princess Bride, The (1987)          Action|Adventure|Comedy|Fantasy|Romance
+1198     Raiders of the Lost Ark (Indiana Jones and the...                                 Action|Adventure
+1199                                         Brazil (1985)                                   Fantasy|Sci-Fi
+1201     Good, the Bad and the Ugly, The (Buono, il bru...                         Action|Adventure|Western
+1223       Grand Day Out with Wallace and Gromit, A (1989)       Adventure|Animation|Children|Comedy|Sci-Fi
+3000              Princess Mononoke (Mononoke-hime) (1997)         Action|Adventure|Animation|Drama|Fantasy
+7099     Nausicaä of the Valley of the Wind (Kaze no ta...         Adventure|Animation|Drama|Fantasy|Sci-Fi
+8253     Lupin III: The Castle Of Cagliostro (Rupan san...  Action|Adventure|Animation|Comedy|Crime|Mystery
+27731           Cat Returns, The (Neko no ongaeshi) (2002)             Adventure|Animation|Children|Fantasy
+Movie Recommendation for user 7993 :
+                                                title                                  genres
+movieId
+1089                            Reservoir Dogs (1992)                  Crime|Mystery|Thriller
+2329                        American History X (1998)                             Crime|Drama
+2959                                Fight Club (1999)             Action|Crime|Drama|Thriller
+4878                              Donnie Darko (2001)           Drama|Mystery|Sci-Fi|Thriller
+7361     Eternal Sunshine of the Spotless Mind (2004)                    Drama|Romance|Sci-Fi
+44199                               Inside Man (2006)                    Crime|Drama|Thriller
+48774                          Children of Men (2006)  Action|Adventure|Drama|Sci-Fi|Thriller
+51884                            Namesake, The (2006)                           Drama|Romance
+56367                                     Juno (2007)                    Comedy|Drama|Romance
+68954                                       Up (2009)      Adventure|Animation|Children|Drama
+Movie Recommendation for user 9427 :
+                                     title                       genres
+movieId
+1625                      Game, The (1997)       Drama|Mystery|Thriller
+1727           Horse Whisperer, The (1998)                Drama|Romance
+2572     10 Things I Hate About You (1999)               Comedy|Romance
+2881                Double Jeopardy (1999)  Action|Crime|Drama|Thriller
+3147                Green Mile, The (1999)                  Crime|Drama
+3825                    Coyote Ugly (2000)         Comedy|Drama|Romance
+Movie Recommendation for user 11748 :
+                                                     title                                       genres
+movieId
+1                                         Toy Story (1995)  Adventure|Animation|Children|Comedy|Fantasy
+47                             Seven (a.k.a. Se7en) (1995)                             Mystery|Thriller
+50                              Usual Suspects, The (1995)                       Crime|Mystery|Thriller
+1079                           Fish Called Wanda, A (1988)                                 Comedy|Crime
+1291             Indiana Jones and the Last Crusade (1989)                             Action|Adventure
+2028                            Saving Private Ryan (1998)                             Action|Drama|War
+4993     Lord of the Rings: The Fellowship of the Ring,...                            Adventure|Fantasy
+5669                          Bowling for Columbine (2002)                                  Documentary
+6942                                  Love Actually (2003)                         Comedy|Drama|Romance
+69757                          (500) Days of Summer (2009)                         Comedy|Drama|Romance
+Movie Recommendation for user 11858 :
+                                             title                             genres
+movieId
+260      Star Wars: Episode IV - A New Hope (1977)            Action|Adventure|Sci-Fi
+637                              Sgt. Bilko (1996)                             Comedy
+694                         Substitute, The (1996)                 Action|Crime|Drama
+736                                 Twister (1996)  Action|Adventure|Romance|Thriller
+788                    Nutty Professor, The (1996)      Comedy|Fantasy|Romance|Sci-Fi
+802                              Phenomenon (1996)                      Drama|Romance
+837                                 Matilda (1996)            Children|Comedy|Fantasy
+1003                       Extreme Measures (1996)                     Drama|Thriller
+1050                    Looking for Richard (1996)                  Documentary|Drama
+Movie Recommendation for user 13623 :
+                                               title                            genres
+movieId
+6                                        Heat (1995)             Action|Crime|Thriller
+110                                Braveheart (1995)                  Action|Drama|War
+593                 Silence of the Lambs, The (1991)             Crime|Horror|Thriller
+1270                       Back to the Future (1985)           Adventure|Comedy|Sci-Fi
+1278                       Young Frankenstein (1974)                    Comedy|Fantasy
+1387                                     Jaws (1975)                     Action|Horror
+2115     Indiana Jones and the Temple of Doom (1984)          Action|Adventure|Fantasy
+2762                         Sixth Sense, The (1999)              Drama|Horror|Mystery
+2804                       Christmas Story, A (1983)                   Children|Comedy
+5349                               Spider-Man (2002)  Action|Adventure|Sci-Fi|Thriller
+Movie Recommendation for user 14570 :
+                                    title                                       genres
+movieId
+39                        Clueless (1995)                               Comedy|Romance
+858                 Godfather, The (1972)                                  Crime|Drama
+1307       When Harry Met Sally... (1989)                               Comedy|Romance
+1527            Fifth Element, The (1997)               Action|Adventure|Comedy|Sci-Fi
+1580     Men in Black (a.k.a. MIB) (1997)                         Action|Comedy|Sci-Fi
+1584                       Contact (1997)                                 Drama|Sci-Fi
+2046       Flight of the Navigator (1986)                    Adventure|Children|Sci-Fi
+2502                  Office Space (1999)                                 Comedy|Crime
+3114                   Toy Story 2 (1999)  Adventure|Animation|Children|Comedy|Fantasy
+3421                  Animal House (1978)                                       Comedy
+Movie Recommendation for user 15957 :
+                                             title                   genres
+movieId
+6                                      Heat (1995)    Action|Crime|Thriller
+32       Twelve Monkeys (a.k.a. 12 Monkeys) (1995)  Mystery|Sci-Fi|Thriller
+475               In the Name of the Father (1993)                    Drama
+508                            Philadelphia (1993)                    Drama
+529             Searching for Bobby Fischer (1993)                    Drama
+778                           Trainspotting (1996)       Comedy|Crime|Drama
+1036                               Die Hard (1988)    Action|Crime|Thriller
+1041                         Secrets & Lies (1996)                    Drama
+1061                               Sleepers (1996)                 Thriller
+1097             E.T. the Extra-Terrestrial (1982)    Children|Drama|Sci-Fi
+Movie Recommendation for user 16861 :
+                                                     title                           genres
+movieId
+593                       Silence of the Lambs, The (1991)            Crime|Horror|Thriller
+608                                           Fargo (1996)      Comedy|Crime|Drama|Thriller
+714                                        Dead Man (1995)            Drama|Mystery|Western
+2858                                American Beauty (1999)                     Comedy|Drama
+3147                                Green Mile, The (1999)                      Crime|Drama
+3578                                      Gladiator (2000)           Action|Adventure|Drama
+4720                                    Others, The (2001)    Drama|Horror|Mystery|Thriller
+6539     Pirates of the Caribbean: The Curse of the Bla...  Action|Adventure|Comedy|Fantasy
+8874                              Shaun of the Dead (2004)                    Comedy|Horror
+45722    Pirates of the Caribbean: Dead Man's Chest (2006)         Action|Adventure|Fantasy
+Total time to run Script: 36.694961392879485 minutes
